@@ -129,6 +129,12 @@
       border: 1px solid var(--card-border);
       color: white;
       font-size: 0.8rem;
+      transition: border-color 0.2s, box-shadow 0.2s;
+    }
+
+    .token-bar input.highlight-error {
+      border-color: #ef4444;
+      box-shadow: 0 0 0 3px rgba(239, 68, 68, 0.3);
     }
 
     .chat-box {
@@ -355,7 +361,7 @@
 
     <div class="token-bar">
       <label for="tokenInput">🔑 GCP Access Token:</label>
-      <input type="password" id="tokenInput" placeholder="วาง Access Token ชั่วคราวจาก gcloud..." onchange="saveToken(this.value)">
+      <input type="password" id="tokenInput" placeholder="วาง Access Token ชั่วคราวจาก gcloud..." onchange="saveToken(this.value)" oninput="clearErrorHighlight(this)">
     </div>
 
     <div class="chat-box" id="chatBox">
@@ -363,7 +369,7 @@
         <div class="avatar">🤖</div>
         <div class="bubble-wrapper">
           <div class="bubble">
-            <p>สวัสดีครับทีมขาย! 👋 ระบบ **Render Middleware API** พร้อมใช้งานเรียบร้อยครับ หากต้องการยิงคำสั่ง สามารถวาง Access Token ด้านบนแล้วพิมพ์โต้ตอบ หรือแนบไฟล์ (PDF, Image, Text) ได้เลยครับ 📎</p>
+            <p>สวัสดีครับทีมขาย! 👋 ระบบ **Render Middleware API** พร้อมใช้งานเรียบร้อยครับ กรุณาวาง Access Token ในช่องด้านบนก่อนส่งคำสั่งหรือแนบไฟล์ (PDF, Image, Text) ให้ Agent วิเคราะห์ข้อมูลได้เลยครับ 📎</p>
           </div>
         </div>
       </div>
@@ -406,7 +412,6 @@
     let sessionId = 'sales_' + Math.random().toString(36).substring(2, 10);
     let selectedFile = null;
 
-    // Load saved token from localStorage if available
     window.addEventListener('DOMContentLoaded', () => {
       const savedToken = localStorage.getItem('gcp_access_token');
       if (savedToken) {
@@ -416,6 +421,10 @@
 
     function saveToken(val) {
       localStorage.setItem('gcp_access_token', val.trim());
+    }
+
+    function clearErrorHighlight(el) {
+      el.classList.remove('highlight-error');
     }
 
     function startNewChat() {
@@ -510,6 +519,14 @@
     }
 
     async function sendMessage(overrideText) {
+      const tokenVal = tokenInput.value.trim();
+      if (!tokenVal) {
+        tokenInput.classList.add('highlight-error');
+        tokenInput.focus();
+        appendMessage('agent', '⚠️ กรุณาวาง **GCP Access Token** ในช่องด้านบนก่อนส่งคำสั่งครับ');
+        return;
+      }
+
       const text = (overrideText || userInput.value).trim();
       if (!text && !selectedFile) return;
 
@@ -522,11 +539,10 @@
       sendBtn.innerHTML = '<span class="loader"></span> <span>กำลังประมวลผล...</span>';
 
       try {
-        const tokenVal = tokenInput.value.trim();
         const payload = {
           message: text,
           session_id: sessionId,
-          access_token: tokenVal || undefined
+          access_token: tokenVal
         };
         if (currentFile) {
           payload.file_base64 = currentFile.base64;
@@ -534,14 +550,12 @@
           payload.file_name = currentFile.name;
         }
 
-        const headers = { 'Content-Type': 'application/json' };
-        if (tokenVal) {
-          headers['Authorization'] = `Bearer ${tokenVal}`;
-        }
-
         const response = await fetch(RENDER_API_ENDPOINT, {
           method: 'POST',
-          headers: headers,
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${tokenVal}`
+          },
           body: JSON.stringify(payload)
         });
 
