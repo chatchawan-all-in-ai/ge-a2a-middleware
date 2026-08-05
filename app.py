@@ -15,7 +15,7 @@ import requests
 app = FastAPI(
     title="Gemini Enterprise Agent External Middleware",
     description="Enterprise Production Middleware for Sales Team to access Gemini Enterprise Agent via A2A Protocol",
-    version="2.4.0",
+    version="2.5.0",
 )
 
 app.add_middleware(
@@ -105,13 +105,26 @@ def get_access_token(incoming_auth: Optional[str] = None) -> str:
 
 
 def extract_text(data: dict) -> str:
-    """Extract text parts from A2A response payload."""
+    """Extract text parts AND generated images (inlineData, fileData, artifacts) from A2A response payload."""
     chunks = []
 
     def collect_from_message(msg: dict) -> None:
         for part in msg.get("content") or msg.get("parts") or []:
             if "text" in part:
                 chunks.append(part["text"])
+            elif "inlineData" in part:
+                inline = part["inlineData"]
+                mime = inline.get("mimeType", "image/png")
+                b64_data = inline.get("data", "")
+                if b64_data:
+                    chunks.append(f"\n\n![Generated Image](data:{mime};base64,{b64_data})\n\n")
+            elif "fileData" in part:
+                fdata = part["fileData"]
+                uri = fdata.get("fileUri") or fdata.get("uri") or ""
+                if uri:
+                    chunks.append(f"\n\n![Generated Image]({uri})\n\n")
+            elif "uri" in part:
+                chunks.append(f"\n\n![Generated Image]({part['uri']})\n\n")
 
     if isinstance(data.get("message"), dict):
         collect_from_message(data["message"])
@@ -122,9 +135,14 @@ def extract_text(data: dict) -> str:
     if status_msg:
         collect_from_message(status_msg)
     for artifact in data.get("artifacts", []) or []:
-        collect_from_message(artifact)
+        if isinstance(artifact, dict):
+            collect_from_message(artifact)
+            art_uri = artifact.get("uri") or artifact.get("url") or artifact.get("gcsPath")
+            if art_uri and not any(art_uri in c for c in chunks):
+                chunks.append(f"\n\n![Artifact Image]({art_uri})\n\n")
     for hist_msg in data.get("history", []) or []:
-        collect_from_message(hist_msg)
+        if isinstance(hist_msg, dict):
+            collect_from_message(hist_msg)
 
     return "".join(chunks)
 
@@ -193,7 +211,6 @@ def chat_with_agent(req: ChatRequest, authorization: Optional[str] = Header(None
         )
     except requests.RequestException as e:
         err_msg = str(e)
-        # Redact token from error message so it never leaks
         err_msg = re.sub(r"ya29\.[A-Za-z0-9_\-]+", "[REDACTED_TOKEN]", err_msg)
         raise HTTPException(
             status_code=502, detail=f"Failed to connect to Agent API: {err_msg}"
@@ -267,7 +284,7 @@ def health_check():
     return {
         "status": "ok",
         "service": "Gemini Enterprise A2A Proxy",
-        "features": ["text", "file_upload", "cors_enabled", "api_key_auth", "line_webhook", "token_sanitization"]
+        "features": ["text", "file_upload", "image_extraction", "cors_enabled", "api_key_auth", "line_webhook"]
     }
 
 
