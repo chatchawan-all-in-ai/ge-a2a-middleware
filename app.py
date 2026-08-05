@@ -5,7 +5,7 @@ import subprocess
 import sys
 import uuid
 from typing import Optional
-from fastapi import FastAPI, HTTPException, Header
+from fastapi import FastAPI, HTTPException, Header, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
@@ -14,7 +14,7 @@ import requests
 app = FastAPI(
     title="Gemini Enterprise Agent External Middleware",
     description="Enterprise Production Middleware for Sales Team to access Gemini Enterprise Agent via A2A Protocol",
-    version="2.1.0",
+    version="2.2.0",
 )
 
 app.add_middleware(
@@ -35,9 +35,15 @@ ACCESS_TOKEN_SCOPES = ["https://www.googleapis.com/auth/cloud-platform"]
 API_KEY_SECRET = os.getenv("API_KEY_SECRET", "sales-team-secret-key-2026")
 
 
-def get_access_token() -> str:
-    """Fetch OAuth access token via Service Account Key ENV, google-auth (ADC), or gcloud CLI."""
-    # Option 1: Service Account JSON stored in Environment Variable (for Render / External Cloud)
+def get_access_token(incoming_auth: Optional[str] = None) -> str:
+    """Fetch OAuth access token via Incoming Header, SA Key ENV, google-auth (ADC), or gcloud CLI."""
+    # Option 1: Direct Bearer Token passed from caller / header
+    if incoming_auth and incoming_auth.startswith("Bearer "):
+        token = incoming_auth.replace("Bearer ", "").strip()
+        if token and token != API_KEY_SECRET:
+            return token
+
+    # Option 2: Service Account JSON stored in Environment Variable
     sa_json = os.getenv("GCP_SERVICE_ACCOUNT_KEY") or os.getenv("GOOGLE_APPLICATION_CREDENTIALS_JSON")
     if sa_json:
         try:
@@ -58,7 +64,7 @@ def get_access_token() -> str:
         except Exception as e:
             print(f"Error loading SA credentials from ENV: {e}")
 
-    # Option 2: Application Default Credentials (GCP environment)
+    # Option 3: Application Default Credentials (GCP environment)
     try:
         import google.auth
         import google.auth.transport.requests
@@ -69,7 +75,7 @@ def get_access_token() -> str:
     except Exception:
         pass
 
-    # Option 3: Fallback for local development using gcloud CLI
+    # Option 4: Fallback for local development using gcloud CLI
     try:
         result = subprocess.run(
             ["gcloud", "auth", "print-access-token", f"--scopes={ACCESS_TOKEN_SCOPES[0]}"],
@@ -81,7 +87,7 @@ def get_access_token() -> str:
     except Exception as e:
         raise HTTPException(
             status_code=500,
-            detail=f"Failed to obtain GCP access token. Please configure GCP_SERVICE_ACCOUNT_KEY in Environment Variables. Details: {str(e)}",
+            detail=f"Failed to obtain GCP access token. Please provide Authorization header or configure GCP_SERVICE_ACCOUNT_KEY. Details: {str(e)}",
         )
 
 
@@ -117,6 +123,7 @@ class ChatRequest(BaseModel):
     file_base64: Optional[str] = None
     mime_type: Optional[str] = None
     file_name: Optional[str] = None
+    access_token: Optional[str] = None
 
 
 class ChatResponse(BaseModel):
@@ -129,7 +136,7 @@ class ChatResponse(BaseModel):
 
 
 @app.post("/api/chat", response_model=ChatResponse)
-def chat_with_agent(req: ChatRequest, x_api_key: Optional[str] = Header(None)):
+def chat_with_agent(req: ChatRequest, authorization: Optional[str] = Header(None), x_api_key: Optional[str] = Header(None)):
     if x_api_key and x_api_key != API_KEY_SECRET:
         raise HTTPException(status_code=401, detail="Invalid X-API-KEY header.")
 
@@ -138,7 +145,9 @@ def chat_with_agent(req: ChatRequest, x_api_key: Optional[str] = Header(None)):
 
     session_id = req.session_id or uuid.uuid4().hex
     user_id = req.user_id or "sales_team_member"
-    token = get_access_token()
+
+    # Token priority: req.access_token > Authorization Header > Server Env / gcloud
+    token = req.access_token or get_access_token(authorization)
 
     content_parts = []
     if req.message.strip():
@@ -198,7 +207,7 @@ def chat_with_agent(req: ChatRequest, x_api_key: Optional[str] = Header(None)):
 
 
 @app.post("/api/webhook/line")
-def line_webhook_handler(payload: dict):
+def line_webhook_handler(payload: dict, authorization: Optional[str] = Header(None)):
     events = payload.get("events", [])
     if not events:
         return {"status": "ok", "message": "No events"}
@@ -210,7 +219,7 @@ def line_webhook_handler(payload: dict):
     if not user_msg:
         return {"status": "ok", "message": "Non-text message ignored"}
 
-    token = get_access_token()
+    token = get_access_token(authorization)
     a2a_payload = {
         "request": {
             "role": "ROLE_USER",
@@ -242,7 +251,7 @@ def health_check():
     return {
         "status": "ok",
         "service": "Gemini Enterprise A2A Proxy",
-        "features": ["text", "file_upload", "cors_enabled", "api_key_auth", "line_webhook", "env_sa_key_auth"]
+        "features": ["text", "file_upload", "cors_enabled", "api_key_auth", "line_webhook", "bearer_token_pass_through"]
     }
 
 
