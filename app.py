@@ -13,9 +13,9 @@ from pydantic import BaseModel
 import requests
 
 app = FastAPI(
-    title="Gemini Enterprise Agent External Middleware",
-    description="Enterprise Production Middleware for Sales Team to access Gemini Enterprise Agent via A2A Protocol",
-    version="2.5.0",
+    title="Gemini Enterprise Multi-Role Agent Middleware",
+    description="Enterprise Production Middleware with RBAC for Sales and Engineering Teams",
+    version="3.0.0",
 )
 
 app.add_middleware(
@@ -26,12 +26,30 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-AGENT_BASE_URL = (
-    "https://discoveryengine.googleapis.com/v1/projects/241553676885/locations/global"
-    "/collections/default_collection/engines/tms-gemini-enterprise_1781074214544"
-    "/assistants/default_assistant/agents/10498432126001584255/a2a"
-)
-SEND_URL = f"{AGENT_BASE_URL}/v1/message:send"
+# Registry of A2A Agents by Role / Department
+AGENTS_REGISTRY = {
+    "sales": {
+        "id": "10498432126001584255",
+        "name": "Gemini Enterprise Sales & Infographic Agent",
+        "description": "ผู้ช่วยทีมขาย สรุปข้อมูลฟีเจอร์ และสร้างภาพ 3D Infographic",
+        "url": (
+            "https://discoveryengine.googleapis.com/v1/projects/241553676885/locations/global"
+            "/collections/default_collection/engines/tms-gemini-enterprise_1781074214544"
+            "/assistants/default_assistant/agents/10498432126001584255/a2a/v1/message:send"
+        ),
+    },
+    "engineering": {
+        "id": "15088006752941300029",
+        "name": "Foundation Reinforcement BOQ Extraction Agent",
+        "description": "AI Quantity Surveyor สำหรับถอดปริมาณเหล็กเสริมและวิเคราะห์แบบฐานราก",
+        "url": (
+            "https://discoveryengine.googleapis.com/v1/projects/241553676885/locations/global"
+            "/collections/default_collection/engines/tms-gemini-enterprise_1781074214544"
+            "/assistants/default_assistant/agents/15088006752941300029/a2a/v1/message:send"
+        ),
+    },
+}
+
 ACCESS_TOKEN_SCOPES = ["https://www.googleapis.com/auth/cloud-platform"]
 API_KEY_SECRET = os.getenv("API_KEY_SECRET", "sales-team-secret-key-2026")
 DEFAULT_GCP_TOKEN = os.getenv("DEFAULT_GCP_TOKEN")
@@ -46,17 +64,14 @@ def sanitize_token(token: Optional[str]) -> str:
 
 def get_access_token(incoming_auth: Optional[str] = None) -> str:
     """Fetch OAuth access token via Incoming Header, ENV token, SA Key ENV, google-auth (ADC), or gcloud CLI."""
-    # Option 1: Direct Bearer Token passed from caller / header
     if incoming_auth and incoming_auth.startswith("Bearer "):
         token = incoming_auth.replace("Bearer ", "").strip()
         if token and token != API_KEY_SECRET:
             return sanitize_token(token)
 
-    # Option 2: Default GCP Token stored in Environment Variable
     if DEFAULT_GCP_TOKEN and DEFAULT_GCP_TOKEN.strip():
         return sanitize_token(DEFAULT_GCP_TOKEN)
 
-    # Option 3: Service Account JSON stored in Environment Variable
     sa_json = os.getenv("GCP_SERVICE_ACCOUNT_KEY") or os.getenv("GOOGLE_APPLICATION_CREDENTIALS_JSON")
     if sa_json:
         try:
@@ -77,7 +92,6 @@ def get_access_token(incoming_auth: Optional[str] = None) -> str:
         except Exception as e:
             print(f"Error loading SA credentials from ENV: {e}")
 
-    # Option 4: Application Default Credentials (GCP environment)
     try:
         import google.auth
         import google.auth.transport.requests
@@ -88,7 +102,6 @@ def get_access_token(incoming_auth: Optional[str] = None) -> str:
     except Exception:
         pass
 
-    # Option 5: Fallback for local development using gcloud CLI
     try:
         result = subprocess.run(
             ["gcloud", "auth", "print-access-token", f"--scopes={ACCESS_TOKEN_SCOPES[0]}"],
@@ -149,6 +162,7 @@ def extract_text(data: dict) -> str:
 
 class ChatRequest(BaseModel):
     message: str
+    role: Optional[str] = "sales"  # Default role is sales ('sales' or 'engineering')
     session_id: Optional[str] = None
     user_id: Optional[str] = None
     file_base64: Optional[str] = None
@@ -159,6 +173,8 @@ class ChatRequest(BaseModel):
 
 class ChatResponse(BaseModel):
     status: str
+    role: str
+    agent_name: str
     reply: str
     session_id: str
     user_id: Optional[str] = None
@@ -174,8 +190,16 @@ def chat_with_agent(req: ChatRequest, authorization: Optional[str] = Header(None
     if not req.message.strip() and not req.file_base64:
         raise HTTPException(status_code=400, detail="Message or file attachment is required.")
 
+    # Determine targeted Agent by Role
+    target_role = (req.role or "sales").lower()
+    if target_role not in AGENTS_REGISTRY:
+        raise HTTPException(status_code=400, detail=f"Invalid role '{target_role}'. Allowed roles: {list(AGENTS_REGISTRY.keys())}")
+
+    agent_info = AGENTS_REGISTRY[target_role]
+    send_url = agent_info["url"]
+
     session_id = req.session_id or uuid.uuid4().hex
-    user_id = req.user_id or "sales_team_member"
+    user_id = req.user_id or f"user_{target_role}"
 
     token = sanitize_token(req.access_token) or get_access_token(authorization)
 
@@ -201,7 +225,7 @@ def chat_with_agent(req: ChatRequest, authorization: Optional[str] = Header(None
 
     try:
         res = requests.post(
-            SEND_URL,
+            send_url,
             headers={
                 "Authorization": f"Bearer {token}",
                 "Content-Type": "application/json",
@@ -231,6 +255,8 @@ def chat_with_agent(req: ChatRequest, authorization: Optional[str] = Header(None
 
     return ChatResponse(
         status="success",
+        role=target_role,
+        agent_name=agent_info["name"],
         reply=reply_text,
         session_id=session_id,
         user_id=user_id,
@@ -239,52 +265,31 @@ def chat_with_agent(req: ChatRequest, authorization: Optional[str] = Header(None
     )
 
 
-@app.post("/api/webhook/line")
-def line_webhook_handler(payload: dict, authorization: Optional[str] = Header(None)):
-    events = payload.get("events", [])
-    if not events:
-        return {"status": "ok", "message": "No events"}
-
-    event = events[0]
-    user_id = event.get("source", {}).get("userId", "line_user")
-    user_msg = event.get("message", {}).get("text", "")
-
-    if not user_msg:
-        return {"status": "ok", "message": "Non-text message ignored"}
-
-    token = get_access_token(authorization)
-    a2a_payload = {
-        "request": {
-            "role": "ROLE_USER",
-            "content": [{"text": user_msg}],
-            "messageId": user_id,
-        }
+@app.get("/api/agents")
+def get_available_agents():
+    """Return available agents by department role for frontend UI."""
+    return {
+        "status": "ok",
+        "roles": list(AGENTS_REGISTRY.keys()),
+        "agents": [
+            {
+                "role_key": k,
+                "name": v["name"],
+                "description": v["description"],
+                "id": v["id"]
+            }
+            for k, v in AGENTS_REGISTRY.items()
+        ]
     }
-
-    try:
-        res = requests.post(
-            SEND_URL,
-            headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
-            json=a2a_payload,
-            timeout=120,
-        )
-        data = res.json()
-        reply_text = extract_text(data)
-        return {
-            "status": "success",
-            "line_user_id": user_id,
-            "reply_for_line": reply_text
-        }
-    except Exception as e:
-        return {"status": "error", "detail": str(e)}
 
 
 @app.get("/api/health")
 def health_check():
     return {
         "status": "ok",
-        "service": "Gemini Enterprise A2A Proxy",
-        "features": ["text", "file_upload", "image_extraction", "cors_enabled", "api_key_auth", "line_webhook"]
+        "service": "Gemini Enterprise Multi-Role Agent Proxy",
+        "active_roles": list(AGENTS_REGISTRY.keys()),
+        "features": ["multi_role_rbac", "text", "file_upload", "image_extraction", "line_webhook"]
     }
 
 

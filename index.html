@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Sales Assistant - Gemini Enterprise Agent (External Trigger via Render)</title>
+  <title>Enterprise Agent Portal - Gemini Enterprise (A2A Protocol Proxy)</title>
   <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🤖</text></svg>">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -16,6 +16,7 @@
       --card-border: rgba(255, 255, 255, 0.1);
       --accent-blue: #38bdf8;
       --accent-purple: #a855f7;
+      --accent-amber: #f59e0b;
       --text-main: #f8fafc;
       --text-muted: #94a3b8;
       --user-bubble: linear-gradient(135deg, #2563eb, #1d4ed8);
@@ -37,7 +38,7 @@
 
     .container {
       width: 100%;
-      max-width: 920px;
+      max-width: 960px;
       height: 92vh;
       display: flex;
       flex-direction: column;
@@ -48,10 +49,11 @@
       border-radius: 20px;
       box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
       overflow: hidden;
+      position: relative;
     }
 
     header {
-      padding: 1.1rem 1.75rem;
+      padding: 1rem 1.5rem;
       border-bottom: 1px solid var(--card-border);
       display: flex;
       justify-content: space-between;
@@ -62,7 +64,7 @@
     .brand { display: flex; align-items: center; gap: 12px; }
 
     .brand-icon {
-      width: 40px; height: 40px;
+      width: 42px; height: 42px;
       border-radius: 12px;
       background: linear-gradient(135deg, var(--accent-blue), var(--accent-purple));
       display: flex; align-items: center; justify-content: center;
@@ -70,8 +72,13 @@
       box-shadow: 0 4px 14px rgba(56, 189, 248, 0.4);
     }
 
-    .brand-title h1 { font-size: 1.15rem; font-weight: 600; }
-    .brand-title p { font-size: 0.8rem; color: var(--text-muted); }
+    .brand-icon.engineering {
+      background: linear-gradient(135deg, #f59e0b, #d97706);
+      box-shadow: 0 4px 14px rgba(245, 158, 11, 0.4);
+    }
+
+    .brand-title h1 { font-size: 1.1rem; font-weight: 600; }
+    .brand-title p { font-size: 0.78rem; color: var(--text-muted); }
 
     .header-actions {
       display: flex;
@@ -80,9 +87,9 @@
     }
 
     .icon-btn {
-      padding: 6px 14px;
+      padding: 6px 12px;
       border-radius: 16px;
-      font-size: 0.8rem;
+      font-size: 0.78rem;
       font-weight: 600;
       background: rgba(255, 255, 255, 0.08);
       color: white;
@@ -105,6 +112,93 @@
       color: var(--accent-blue);
       border: 1px solid rgba(56, 189, 248, 0.3);
     }
+
+    .badge.engineering {
+      background: rgba(245, 158, 11, 0.15);
+      color: var(--accent-amber);
+      border-color: rgba(245, 158, 11, 0.3);
+    }
+
+    /* Modal for Role Selection */
+    .modal-overlay {
+      position: absolute;
+      top: 0; left: 0; width: 100%; height: 100%;
+      background: rgba(15, 23, 42, 0.85);
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+      z-index: 100;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 1.5rem;
+      animation: fadeIn 0.3s ease-in-out;
+    }
+
+    .modal-card {
+      width: 100%;
+      max-width: 520px;
+      background: rgba(30, 41, 59, 0.95);
+      border: 1px solid var(--card-border);
+      border-radius: 24px;
+      padding: 2rem;
+      box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.7);
+      text-align: center;
+    }
+
+    .modal-card h2 {
+      font-size: 1.35rem;
+      margin-bottom: 0.5rem;
+      font-weight: 700;
+    }
+
+    .modal-card p.subtitle {
+      font-size: 0.88rem;
+      color: var(--text-muted);
+      margin-bottom: 1.75rem;
+    }
+
+    .role-options {
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+    }
+
+    .role-card {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      padding: 1.2rem;
+      border-radius: 16px;
+      background: rgba(255, 255, 255, 0.04);
+      border: 1px solid var(--card-border);
+      cursor: pointer;
+      text-align: left;
+      transition: all 0.25s ease;
+    }
+
+    .role-card:hover {
+      background: rgba(56, 189, 248, 0.1);
+      border-color: var(--accent-blue);
+      transform: translateY(-2px);
+    }
+
+    .role-card.engineering:hover {
+      background: rgba(245, 158, 11, 0.1);
+      border-color: var(--accent-amber);
+    }
+
+    .role-icon {
+      width: 48px; height: 48px;
+      border-radius: 14px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 22px; flex-shrink: 0;
+    }
+
+    .role-card.sales .role-icon { background: rgba(56, 189, 248, 0.15); color: var(--accent-blue); }
+    .role-card.engineering .role-icon { background: rgba(245, 158, 11, 0.15); color: var(--accent-amber); }
+
+    .role-info h3 { font-size: 1rem; font-weight: 600; margin-bottom: 2px; }
+    .role-info p { font-size: 0.78rem; color: var(--text-muted); line-height: 1.4; }
 
     .chat-box {
       flex: 1;
@@ -304,6 +398,10 @@
       display: flex; align-items: center; gap: 8px;
     }
 
+    button.send-btn.engineering {
+      background: linear-gradient(135deg, var(--accent-amber), #d97706);
+    }
+
     button.send-btn:hover {
       transform: translateY(-1px);
       box-shadow: 0 6px 20px rgba(37, 99, 235, 0.4);
@@ -322,35 +420,53 @@
 </head>
 <body>
   <div class="container">
-    <header>
-      <div class="brand">
-        <div class="brand-icon">GE</div>
-        <div class="brand-title">
-          <h1>Sales Team Assistant</h1>
-          <p>Gemini Enterprise Agent (External Trigger via Render)</p>
-        </div>
-      </div>
-      <div class="header-actions">
-        <button class="icon-btn" onclick="startNewChat()">🔄 เริ่มแชทใหม่</button>
-        <div class="badge">● Render Live API</div>
-      </div>
-    </header>
+    <!-- Role Selection Modal Overlay -->
+    <div class="modal-overlay" id="roleModal">
+      <div class="modal-card">
+        <h2>🔒 เข้าสู่ระบบเลือกบทบาทแผนก</h2>
+        <p class="subtitle">ระบบจะทำการสลับ A2A Agent & Permissions หลังบ้านตามบทบาทที่คุณเลือก</p>
+        
+        <div class="role-options">
+          <div class="role-card sales" onclick="selectRole('sales')">
+            <div class="role-icon">💼</div>
+            <div class="role-info">
+              <h3>ทีมขาย (Sales Team)</h3>
+              <p>เรียกใช้ <strong>Gemini Enterprise Infographic Agent</strong> (สรุปฟีเจอร์, ไอเดียขาย & สร้างภาพ 3D)</p>
+            </div>
+          </div>
 
-    <div class="chat-box" id="chatBox">
-      <div class="message agent">
-        <div class="avatar">🤖</div>
-        <div class="bubble-wrapper">
-          <div class="bubble">
-            <p>สวัสดีครับทีมขาย! 👋 ระบบ **Render Middleware API** พร้อมใช้งานเรียบร้อยครับ พิมพ์คำสั่งหรือแนบไฟล์ (PDF, Image, Text) หรือสั่งให้ Agent สร้างรูป Infographic 3D ได้เลยครับ 🎨📎</p>
+          <div class="role-card engineering" onclick="selectRole('engineering')">
+            <div class="role-icon">🏗️</div>
+            <div class="role-info">
+              <h3>ทีมวิศวกรรม / QS (Engineering Team)</h3>
+              <p>เรียกใช้ <strong>Foundation BOQ Extraction Agent</strong> (ถอดปริมาณเหล็กเสริมฐานราก & สเปกโครงสร้าง)</p>
+            </div>
           </div>
         </div>
       </div>
     </div>
 
-    <div class="suggestions">
-      <div class="chip" onclick="sendSample('ช่วยอ่านและสรุปข้อมูลสำคัญในเอกสารแนบนี้ให้หน่อย')">📄 สรุปเอกสารแนบ</div>
-      <div class="chip" onclick="sendSample('ช่วยสร้างภาพ Infographic 3D Claymation สรุปจุดเด่น Gemini Enterprise')">🖼️ สร้างรูป Infographic 3D</div>
-      <div class="chip" onclick="sendSample('ขอไอเดียเสนอขาย Gemini Enterprise ให้ลูกค้าองค์กร')">📈 ไอเดียเสนอขายลูกค้า</div>
+    <header>
+      <div class="brand">
+        <div class="brand-icon" id="brandIcon">GE</div>
+        <div class="brand-title">
+          <h1 id="portalTitle">Enterprise Agent Portal</h1>
+          <p id="portalSub">Gemini Enterprise Multi-Role Proxy (A2A Protocol)</p>
+        </div>
+      </div>
+      <div class="header-actions">
+        <button class="icon-btn" onclick="openRoleModal()">🚪 สลับบทบาทแผนก</button>
+        <button class="icon-btn" onclick="startNewChat()">🔄 เริ่มแชทใหม่</button>
+        <div class="badge" id="roleBadge">● Sales Role</div>
+      </div>
+    </header>
+
+    <div class="chat-box" id="chatBox">
+      <!-- Chat Messages injected dynamically -->
+    </div>
+
+    <div class="suggestions" id="suggestionsContainer">
+      <!-- Suggestion Chips injected dynamically -->
     </div>
 
     <div class="file-preview-bar" id="filePreviewBar">
@@ -373,6 +489,11 @@
   <script>
     const RENDER_API_ENDPOINT = 'https://ge-a2a-middleware.onrender.com/api/chat';
 
+    const roleModal = document.getElementById('roleModal');
+    const brandIcon = document.getElementById('brandIcon');
+    const portalTitle = document.getElementById('portalTitle');
+    const portalSub = document.getElementById('portalSub');
+    const roleBadge = document.getElementById('roleBadge');
     const chatBox = document.getElementById('chatBox');
     const userInput = document.getElementById('userInput');
     const sendBtn = document.getElementById('sendBtn');
@@ -380,18 +501,87 @@
     const fileInput = document.getElementById('fileInput');
     const filePreviewBar = document.getElementById('filePreviewBar');
     const fileNameDisplay = document.getElementById('fileName');
+    const suggestionsContainer = document.getElementById('suggestionsContainer');
 
-    let sessionId = 'sales_' + Math.random().toString(36).substring(2, 10);
+    let currentRole = 'sales';
+    let sessionId = 'session_' + Math.random().toString(36).substring(2, 10);
     let selectedFile = null;
 
+    const ROLE_CONFIGS = {
+      sales: {
+        title: 'Sales Team Assistant',
+        sub: 'Gemini Enterprise Sales & Infographic Agent (A2A Proxy)',
+        icon: '💼',
+        badge: '● Sales Agent Active',
+        badgeClass: 'badge',
+        btnClass: 'send-btn',
+        welcomeMsg: 'สวัสดีครับทีมขาย! 👋 ระบบล็อกอินในบทบาท **ทีมขาย (Sales Team)** เรียบร้อยครับ พร้อมสำหรับถามสรุปฟีเจอร์ หรือสั่งสร้างภาพ 3D Infographic ได้เลยครับ 🎨',
+        chips: [
+          { label: '📄 สรุปเอกสารแนบ', text: 'ช่วยอ่านและสรุปข้อมูลสำคัญในเอกสารแนบนี้ให้หน่อย' },
+          { label: '🖼️ สร้างรูป Infographic 3D', text: 'ช่วยสร้างภาพ Infographic 3D Claymation สรุปจุดเด่น Gemini Enterprise' },
+          { label: '📈 ไอเดียเสนอขายลูกค้า', text: 'ขอไอเดียเสนอขาย Gemini Enterprise ให้ลูกค้าองค์กร' }
+        ]
+      },
+      engineering: {
+        title: 'Engineering & QS Assistant',
+        sub: 'Foundation BOQ Extraction Agent (A2A Proxy)',
+        icon: '🏗️',
+        badge: '● BOQ Agent Active',
+        badgeClass: 'badge engineering',
+        btnClass: 'send-btn engineering',
+        welcomeMsg: 'สวัสดีครับทีมวิศวกร/QS! 🏗️ ระบบล็อกอินในบทบาท **ทีมวิศวกรรม (Engineering & QS)** เรียบร้อยครับ สามารถแนบแบบแปลน หรือพิมพ์ถามข้อมูลถอดปริมาณเหล็กเสริมฐานราก (BOQ Extraction) ได้เลยครับ 📐',
+        chips: [
+          { label: '🏗️ ถอดปริมาณเหล็กเสริมฐานราก', text: 'ช่วยสรุปขั้นตอนและหลักการถอดปริมาณเหล็กเสริมฐานราก (BOQ Extraction)' },
+          { label: '📐 วิเคราะห์สเปกเหล็ก DB/RB', text: 'ขอตารางเปรียบเทียบสเปกและน้ำหนักเหล็กเส้น DB12, DB16, DB20 และ RB9' },
+          { label: '📄 วิเคราะห์ไฟล์แปลนแนบ', text: 'ช่วยวิเคราะห์ปริมาณงานเหล็กและคอนกรีตจากเอกสารแนบนี้' }
+        ]
+      }
+    };
+
+    function openRoleModal() {
+      roleModal.style.display = 'flex';
+    }
+
+    function selectRole(roleKey) {
+      currentRole = roleKey;
+      roleModal.style.display = 'none';
+      
+      const config = ROLE_CONFIGS[roleKey];
+      portalTitle.textContent = config.title;
+      portalSub.textContent = config.sub;
+      brandIcon.textContent = config.icon;
+      if (roleKey === 'engineering') {
+        brandIcon.classList.add('engineering');
+      } else {
+        brandIcon.classList.remove('engineering');
+      }
+
+      roleBadge.textContent = config.badge;
+      roleBadge.className = config.badgeClass;
+      sendBtn.className = config.btnClass;
+
+      // Render Suggestions
+      suggestionsContainer.innerHTML = '';
+      config.chips.forEach(chip => {
+        const div = document.createElement('div');
+        div.className = 'chip';
+        div.textContent = chip.label;
+        div.onclick = () => sendSample(chip.text);
+        suggestionsContainer.appendChild(div);
+      });
+
+      startNewChat();
+    }
+
     function startNewChat() {
-      sessionId = 'sales_' + Math.random().toString(36).substring(2, 10);
+      sessionId = currentRole + '_' + Math.random().toString(36).substring(2, 10);
+      const config = ROLE_CONFIGS[currentRole];
       chatBox.innerHTML = `
         <div class="message agent">
           <div class="avatar">🤖</div>
           <div class="bubble-wrapper">
             <div class="bubble">
-              <p>เริ่มเซสชันสนทนาใหม่เรียบร้อยแล้วครับ! มีอะไรให้ผมช่วยเพิ่มเติมบอกมาได้เลยครับ 😊</p>
+              <p>${marked.parse(config.welcomeMsg)}</p>
             </div>
           </div>
         </div>
@@ -487,17 +677,16 @@
 
       sendBtn.disabled = true;
       
-      // Dynamic Progress Messages so user knows system is actively generating
       let elapsedSeconds = 0;
       const updateProgress = () => {
         if (elapsedSeconds < 5) {
           sendBtnText.innerHTML = '<span class="loader"></span> <span>กำลังเชื่อมต่อ Agent...</span>';
         } else if (elapsedSeconds < 15) {
-          sendBtnText.innerHTML = '<span class="loader"></span> <span>กำลังคิดวางแผนเนื้อหา...</span>';
+          sendBtnText.innerHTML = '<span class="loader"></span> <span>กำลังประมวลผลข้อมูล...</span>';
         } else if (elapsedSeconds < 35) {
-          sendBtnText.innerHTML = '<span class="loader"></span> <span>กำลังเรนเดอร์ภาพ 3D Infographic...</span>';
+          sendBtnText.innerHTML = '<span class="loader"></span> <span>กำลังวิเคราะห์และเรนเดอร์คำตอบ...</span>';
         } else {
-          sendBtnText.innerHTML = '<span class="loader"></span> <span>กำลังประมวลผลขั้นตอนสุดท้าย...</span>';
+          sendBtnText.innerHTML = '<span class="loader"></span> <span>กำลังสรุปผลลัพธ์ขั้นตอนสุดท้าย...</span>';
         }
       };
       
@@ -510,6 +699,7 @@
       try {
         const payload = {
           message: text,
+          role: currentRole,
           session_id: sessionId
         };
         if (currentFile) {
@@ -548,6 +738,11 @@
         sendMessage();
       }
     }
+
+    // Default Initialization to Sales Role
+    window.addEventListener('DOMContentLoaded', () => {
+      selectRole('sales');
+    });
   </script>
 </body>
 </html>
