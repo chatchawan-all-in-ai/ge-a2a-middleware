@@ -1,6 +1,7 @@
 import base64
 import json
 import os
+import re
 import subprocess
 import sys
 import uuid
@@ -14,7 +15,7 @@ import requests
 app = FastAPI(
     title="Gemini Enterprise Agent External Middleware",
     description="Enterprise Production Middleware for Sales Team to access Gemini Enterprise Agent via A2A Protocol",
-    version="2.3.0",
+    version="2.4.0",
 )
 
 app.add_middleware(
@@ -36,17 +37,24 @@ API_KEY_SECRET = os.getenv("API_KEY_SECRET", "sales-team-secret-key-2026")
 DEFAULT_GCP_TOKEN = os.getenv("DEFAULT_GCP_TOKEN")
 
 
+def sanitize_token(token: Optional[str]) -> str:
+    """Remove newlines, carriage returns, and accidental spaces from OAuth token."""
+    if not token:
+        return ""
+    return token.replace("\n", "").replace("\r", "").replace(" ", "").strip()
+
+
 def get_access_token(incoming_auth: Optional[str] = None) -> str:
     """Fetch OAuth access token via Incoming Header, ENV token, SA Key ENV, google-auth (ADC), or gcloud CLI."""
     # Option 1: Direct Bearer Token passed from caller / header
     if incoming_auth and incoming_auth.startswith("Bearer "):
         token = incoming_auth.replace("Bearer ", "").strip()
         if token and token != API_KEY_SECRET:
-            return token
+            return sanitize_token(token)
 
     # Option 2: Default GCP Token stored in Environment Variable
     if DEFAULT_GCP_TOKEN and DEFAULT_GCP_TOKEN.strip():
-        return DEFAULT_GCP_TOKEN.strip()
+        return sanitize_token(DEFAULT_GCP_TOKEN)
 
     # Option 3: Service Account JSON stored in Environment Variable
     sa_json = os.getenv("GCP_SERVICE_ACCOUNT_KEY") or os.getenv("GOOGLE_APPLICATION_CREDENTIALS_JSON")
@@ -65,7 +73,7 @@ def get_access_token(incoming_auth: Optional[str] = None) -> str:
             )
             auth_req = google.auth.transport.requests.Request()
             creds.refresh(auth_req)
-            return creds.token
+            return sanitize_token(creds.token)
         except Exception as e:
             print(f"Error loading SA credentials from ENV: {e}")
 
@@ -76,7 +84,7 @@ def get_access_token(incoming_auth: Optional[str] = None) -> str:
         credentials, _ = google.auth.default(scopes=ACCESS_TOKEN_SCOPES)
         auth_req = google.auth.transport.requests.Request()
         credentials.refresh(auth_req)
-        return credentials.token
+        return sanitize_token(credentials.token)
     except Exception:
         pass
 
@@ -88,7 +96,7 @@ def get_access_token(incoming_auth: Optional[str] = None) -> str:
             text=True,
             check=True,
         )
-        return result.stdout.strip()
+        return sanitize_token(result.stdout)
     except Exception as e:
         raise HTTPException(
             status_code=500,
@@ -151,7 +159,7 @@ def chat_with_agent(req: ChatRequest, authorization: Optional[str] = Header(None
     session_id = req.session_id or uuid.uuid4().hex
     user_id = req.user_id or "sales_team_member"
 
-    token = req.access_token or get_access_token(authorization)
+    token = sanitize_token(req.access_token) or get_access_token(authorization)
 
     content_parts = []
     if req.message.strip():
@@ -184,14 +192,18 @@ def chat_with_agent(req: ChatRequest, authorization: Optional[str] = Header(None
             timeout=120,
         )
     except requests.RequestException as e:
+        err_msg = str(e)
+        # Redact token from error message so it never leaks
+        err_msg = re.sub(r"ya29\.[A-Za-z0-9_\-]+", "[REDACTED_TOKEN]", err_msg)
         raise HTTPException(
-            status_code=502, detail=f"Failed to connect to Agent API: {str(e)}"
+            status_code=502, detail=f"Failed to connect to Agent API: {err_msg}"
         )
 
     if not res.ok:
+        err_msg = re.sub(r"ya29\.[A-Za-z0-9_\-]+", "[REDACTED_TOKEN]", res.text)
         raise HTTPException(
             status_code=res.status_code,
-            detail=f"Agent API Error ({res.status_code}): {res.text}",
+            detail=f"Agent API Error ({res.status_code}): {err_msg}",
         )
 
     data = res.json()
@@ -255,7 +267,7 @@ def health_check():
     return {
         "status": "ok",
         "service": "Gemini Enterprise A2A Proxy",
-        "features": ["text", "file_upload", "cors_enabled", "api_key_auth", "line_webhook", "env_token_auth"]
+        "features": ["text", "file_upload", "cors_enabled", "api_key_auth", "line_webhook", "token_sanitization"]
     }
 
 
