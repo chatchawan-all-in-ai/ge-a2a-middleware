@@ -5,7 +5,7 @@ import subprocess
 import sys
 import uuid
 from typing import Optional
-from fastapi import FastAPI, HTTPException, Header, Request
+from fastapi import FastAPI, HTTPException, Header
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
@@ -14,7 +14,7 @@ import requests
 app = FastAPI(
     title="Gemini Enterprise Agent External Middleware",
     description="Enterprise Production Middleware for Sales Team to access Gemini Enterprise Agent via A2A Protocol",
-    version="2.2.0",
+    version="2.3.0",
 )
 
 app.add_middleware(
@@ -33,17 +33,22 @@ AGENT_BASE_URL = (
 SEND_URL = f"{AGENT_BASE_URL}/v1/message:send"
 ACCESS_TOKEN_SCOPES = ["https://www.googleapis.com/auth/cloud-platform"]
 API_KEY_SECRET = os.getenv("API_KEY_SECRET", "sales-team-secret-key-2026")
+DEFAULT_GCP_TOKEN = os.getenv("DEFAULT_GCP_TOKEN")
 
 
 def get_access_token(incoming_auth: Optional[str] = None) -> str:
-    """Fetch OAuth access token via Incoming Header, SA Key ENV, google-auth (ADC), or gcloud CLI."""
+    """Fetch OAuth access token via Incoming Header, ENV token, SA Key ENV, google-auth (ADC), or gcloud CLI."""
     # Option 1: Direct Bearer Token passed from caller / header
     if incoming_auth and incoming_auth.startswith("Bearer "):
         token = incoming_auth.replace("Bearer ", "").strip()
         if token and token != API_KEY_SECRET:
             return token
 
-    # Option 2: Service Account JSON stored in Environment Variable
+    # Option 2: Default GCP Token stored in Environment Variable
+    if DEFAULT_GCP_TOKEN and DEFAULT_GCP_TOKEN.strip():
+        return DEFAULT_GCP_TOKEN.strip()
+
+    # Option 3: Service Account JSON stored in Environment Variable
     sa_json = os.getenv("GCP_SERVICE_ACCOUNT_KEY") or os.getenv("GOOGLE_APPLICATION_CREDENTIALS_JSON")
     if sa_json:
         try:
@@ -64,7 +69,7 @@ def get_access_token(incoming_auth: Optional[str] = None) -> str:
         except Exception as e:
             print(f"Error loading SA credentials from ENV: {e}")
 
-    # Option 3: Application Default Credentials (GCP environment)
+    # Option 4: Application Default Credentials (GCP environment)
     try:
         import google.auth
         import google.auth.transport.requests
@@ -75,7 +80,7 @@ def get_access_token(incoming_auth: Optional[str] = None) -> str:
     except Exception:
         pass
 
-    # Option 4: Fallback for local development using gcloud CLI
+    # Option 5: Fallback for local development using gcloud CLI
     try:
         result = subprocess.run(
             ["gcloud", "auth", "print-access-token", f"--scopes={ACCESS_TOKEN_SCOPES[0]}"],
@@ -87,7 +92,7 @@ def get_access_token(incoming_auth: Optional[str] = None) -> str:
     except Exception as e:
         raise HTTPException(
             status_code=500,
-            detail=f"Failed to obtain GCP access token. Please provide Authorization header or configure GCP_SERVICE_ACCOUNT_KEY. Details: {str(e)}",
+            detail=f"Failed to obtain GCP access token. Details: {str(e)}",
         )
 
 
@@ -146,7 +151,6 @@ def chat_with_agent(req: ChatRequest, authorization: Optional[str] = Header(None
     session_id = req.session_id or uuid.uuid4().hex
     user_id = req.user_id or "sales_team_member"
 
-    # Token priority: req.access_token > Authorization Header > Server Env / gcloud
     token = req.access_token or get_access_token(authorization)
 
     content_parts = []
@@ -251,7 +255,7 @@ def health_check():
     return {
         "status": "ok",
         "service": "Gemini Enterprise A2A Proxy",
-        "features": ["text", "file_upload", "cors_enabled", "api_key_auth", "line_webhook", "bearer_token_pass_through"]
+        "features": ["text", "file_upload", "cors_enabled", "api_key_auth", "line_webhook", "env_token_auth"]
     }
 
 
