@@ -1,3 +1,5 @@
+import base64
+import json
 import os
 import subprocess
 import sys
@@ -12,10 +14,9 @@ import requests
 app = FastAPI(
     title="Gemini Enterprise Agent External Middleware",
     description="Enterprise Production Middleware for Sales Team to access Gemini Enterprise Agent via A2A Protocol",
-    version="2.0.0",
+    version="2.1.0",
 )
 
-# Enable CORS for GitHub Pages and all frontend origins
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -35,7 +36,29 @@ API_KEY_SECRET = os.getenv("API_KEY_SECRET", "sales-team-secret-key-2026")
 
 
 def get_access_token() -> str:
-    """Fetch OAuth access token via google-auth (ADC) or fallback to gcloud CLI."""
+    """Fetch OAuth access token via Service Account Key ENV, google-auth (ADC), or gcloud CLI."""
+    # Option 1: Service Account JSON stored in Environment Variable (for Render / External Cloud)
+    sa_json = os.getenv("GCP_SERVICE_ACCOUNT_KEY") or os.getenv("GOOGLE_APPLICATION_CREDENTIALS_JSON")
+    if sa_json:
+        try:
+            import google.auth.transport.requests
+            from google.oauth2 import service_account
+
+            clean_json = sa_json.strip()
+            if not clean_json.startswith("{"):
+                clean_json = base64.b64decode(clean_json).decode("utf-8")
+
+            info = json.loads(clean_json)
+            creds = service_account.Credentials.from_service_account_info(
+                info, scopes=ACCESS_TOKEN_SCOPES
+            )
+            auth_req = google.auth.transport.requests.Request()
+            creds.refresh(auth_req)
+            return creds.token
+        except Exception as e:
+            print(f"Error loading SA credentials from ENV: {e}")
+
+    # Option 2: Application Default Credentials (GCP environment)
     try:
         import google.auth
         import google.auth.transport.requests
@@ -44,19 +67,22 @@ def get_access_token() -> str:
         credentials.refresh(auth_req)
         return credentials.token
     except Exception:
-        # Fallback for local development using gcloud CLI
-        try:
-            result = subprocess.run(
-                ["gcloud", "auth", "print-access-token", f"--scopes={ACCESS_TOKEN_SCOPES[0]}"],
-                capture_output=True,
-                text=True,
-                check=True,
-            )
-            return result.stdout.strip()
-        except subprocess.CalledProcessError as e:
-            raise HTTPException(
-                status_code=500, detail=f"Failed to obtain access token: {e.stderr}"
-            )
+        pass
+
+    # Option 3: Fallback for local development using gcloud CLI
+    try:
+        result = subprocess.run(
+            ["gcloud", "auth", "print-access-token", f"--scopes={ACCESS_TOKEN_SCOPES[0]}"],
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        return result.stdout.strip()
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to obtain GCP access token. Please configure GCP_SERVICE_ACCOUNT_KEY in Environment Variables. Details: {str(e)}",
+        )
 
 
 def extract_text(data: dict) -> str:
@@ -216,7 +242,7 @@ def health_check():
     return {
         "status": "ok",
         "service": "Gemini Enterprise A2A Proxy",
-        "features": ["text", "file_upload", "cors_enabled", "api_key_auth", "line_webhook", "adc_auth"]
+        "features": ["text", "file_upload", "cors_enabled", "api_key_auth", "line_webhook", "env_sa_key_auth"]
     }
 
 
