@@ -155,6 +155,14 @@
       word-break: break-word;
     }
 
+    .bubble img {
+      max-width: 100%;
+      border-radius: 12px;
+      margin-top: 10px;
+      box-shadow: 0 8px 24px rgba(0,0,0,0.4);
+      border: 1px solid var(--card-border);
+    }
+
     .user .bubble {
       background: var(--user-bubble);
       color: white;
@@ -333,7 +341,7 @@
         <div class="avatar">🤖</div>
         <div class="bubble-wrapper">
           <div class="bubble">
-            <p>สวัสดีครับทีมขาย! 👋 ระบบ **Render Middleware API** พร้อมใช้งานเรียบร้อยครับ พิมพ์คำสั่งหรือแนบไฟล์ (PDF, Image, Text) ให้ Agent วิเคราะห์ข้อมูลได้เลยครับ 📎</p>
+            <p>สวัสดีครับทีมขาย! 👋 ระบบ **Render Middleware API** พร้อมใช้งานเรียบร้อยครับ พิมพ์คำสั่งหรือแนบไฟล์ (PDF, Image, Text) หรือสั่งให้ Agent สร้างรูป Infographic 3D ได้เลยครับ 🎨📎</p>
           </div>
         </div>
       </div>
@@ -341,7 +349,7 @@
 
     <div class="suggestions">
       <div class="chip" onclick="sendSample('ช่วยอ่านและสรุปข้อมูลสำคัญในเอกสารแนบนี้ให้หน่อย')">📄 สรุปเอกสารแนบ</div>
-      <div class="chip" onclick="sendSample('ช่วยวิเคราะห์ข้อมูลใบเสนอราคา/สเปกสินค้าจากไฟล์นี้')">📊 วิเคราะห์ไฟล์สเปก/ราคา</div>
+      <div class="chip" onclick="sendSample('ช่วยสร้างภาพ Infographic 3D Claymation สรุปจุดเด่น Gemini Enterprise')">🖼️ สร้างรูป Infographic 3D</div>
       <div class="chip" onclick="sendSample('ขอไอเดียเสนอขาย Gemini Enterprise ให้ลูกค้าองค์กร')">📈 ไอเดียเสนอขายลูกค้า</div>
     </div>
 
@@ -357,7 +365,7 @@
       </label>
       <input type="text" id="userInput" placeholder="พิมพ์ข้อความสั่งการ หรือเลือกแนบไฟล์ข้างๆ..." onkeydown="handleKeyDown(event)">
       <button class="send-btn" id="sendBtn" onclick="sendMessage()">
-        <span>ส่งข้อมูล</span>
+        <span id="sendBtnText">ส่งข้อมูล</span>
       </button>
     </div>
   </div>
@@ -368,6 +376,7 @@
     const chatBox = document.getElementById('chatBox');
     const userInput = document.getElementById('userInput');
     const sendBtn = document.getElementById('sendBtn');
+    const sendBtnText = document.getElementById('sendBtnText');
     const fileInput = document.getElementById('fileInput');
     const filePreviewBar = document.getElementById('filePreviewBar');
     const fileNameDisplay = document.getElementById('fileName');
@@ -464,6 +473,7 @@
       msgDiv.appendChild(wrapper);
       chatBox.appendChild(msgDiv);
       chatBox.scrollTop = chatBox.scrollHeight;
+      return msgDiv;
     }
 
     async function sendMessage(overrideText) {
@@ -476,7 +486,26 @@
       clearFile();
 
       sendBtn.disabled = true;
-      sendBtn.innerHTML = '<span class="loader"></span> <span>กำลังประมวลผล...</span>';
+      
+      // Dynamic Progress Messages so user knows system is actively generating
+      let elapsedSeconds = 0;
+      const updateProgress = () => {
+        if (elapsedSeconds < 5) {
+          sendBtnText.innerHTML = '<span class="loader"></span> <span>กำลังเชื่อมต่อ Agent...</span>';
+        } else if (elapsedSeconds < 15) {
+          sendBtnText.innerHTML = '<span class="loader"></span> <span>กำลังคิดวางแผนเนื้อหา...</span>';
+        } else if (elapsedSeconds < 35) {
+          sendBtnText.innerHTML = '<span class="loader"></span> <span>กำลังเรนเดอร์ภาพ 3D Infographic...</span>';
+        } else {
+          sendBtnText.innerHTML = '<span class="loader"></span> <span>กำลังประมวลผลขั้นตอนสุดท้าย...</span>';
+        }
+      };
+      
+      updateProgress();
+      const progressInterval = setInterval(() => {
+        elapsedSeconds += 2;
+        updateProgress();
+      }, 2000);
 
       try {
         const payload = {
@@ -504,8 +533,9 @@
       } catch (err) {
         appendMessage('agent', `⚠️ เกิดข้อผิดพลาดทางเครือข่าย: ${err.message}`);
       } finally {
+        clearInterval(progressInterval);
         sendBtn.disabled = false;
-        sendBtn.innerHTML = '<span>ส่งข้อมูล</span>';
+        sendBtnText.innerHTML = '<span>ส่งข้อมูล</span>';
       }
     }
 
